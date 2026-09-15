@@ -1,5 +1,6 @@
 (() => {
   let started = false;
+  let selecting = false;
   let openingAudioStarted = false;
 
   const markAudioStarted = () => {
@@ -12,7 +13,7 @@
     if (hint) hint.textContent = 'PRESS START / ENTER / SPACE ではじめる';
   };
 
-  const startGame = () => {
+  const enterMap = () => {
     if (started || !openingAudioStarted) return;
     started = true;
     window.GUNMA_GAME_STARTED = true;
@@ -28,7 +29,13 @@
     document.dispatchEvent(new Event('gunma-game-started'));
   };
 
+  const startGame = () => {
+    if(started||selecting||!openingAudioStarted)return;
+    selecting=true;
+    window.GunmaStarter.open(()=>{selecting=false;enterMap();});
+  };
   const handleStartAction = () => {
+    if(selecting)return;
     if (!openingAudioStarted) {
       markAudioStarted();
       return;

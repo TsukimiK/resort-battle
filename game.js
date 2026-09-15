@@ -1,5 +1,5 @@
 const $=id=>document.getElementById(id);
-const RESORT_ASSET_VERSION=window.RESORT_ASSET_VERSION||'20260915-party1';
+const RESORT_ASSET_VERSION=window.RESORT_ASSET_VERSION||'20260915-tsukimiboss1';
 const resortAsset=path=>path+(path.includes('?')?'&':'?')+'v='+encodeURIComponent(RESORT_ASSET_VERSION);
 
 const definitions=[
@@ -44,7 +44,14 @@ const subaruMoves=[
   {name:'銃を打つ',kind:'damage',damage:55,text:'バンッ！ 55 ダメージを うけた！'}
 ];
 
+const tsukimiSubaruMoves=[
+  {name:'銃乱射',kind:'damage',damage:40},
+  {name:'ぶち殺す',kind:'ohko',accuracy:0.2},
+  {name:'かちキレる',kind:'damage',damage:40},
+  {name:'煙草を吸う',kind:'self-heal',heal:45}
+];
 const enemies={
+  tsukimi_subaru:{name:'つきみ すばる',title:'色違いの花園のボス',image:window.TSUKIMI_PORTRAIT,moves:tsukimiSubaruMoves},
   matasaburo:{name:'マタサブロウ',title:'やせいの リゾートポケモン',image:resortAsset('assets/matasaburo.png'),moves:[{name:'ハッピーアタック',damage:27},{name:'ダンシングビート',damage:32},{name:'トロピカルウェーブ',damage:29}]},
   mikeke:{name:'ミケケ',title:'カメラこぞう',image:resortAsset('assets/mikeke.png'),moves:mikekeMoves},
   mine_daina:{name:'みね だいな',title:'だいこんトレーナー',image:resortAsset('assets/mine_daina.png'),moves:mineDainaMoves},
@@ -57,9 +64,10 @@ const enemies={
   subaru:{name:'すばる',title:'あおい けむりのトレーナー',image:resortAsset('assets/subaru.png'),moves:subaruMoves}
 };
 
+const STARTERS=['matasaburo','mikeke','sui','mine_daina','kanade'];
 const PARTY_KEY='gunma-party-v1';
 function movesFor(member){
-  if(member.uid==='self')return definitions.map(m=>({...m,kind:m.power?'damage':'self-heal',damage:m.power,heal:45,variable:!!m.power}));
+  if(member.uid==='self'&&member.species==='matasaburo')return definitions.map(m=>({...m,kind:m.power?'damage':'self-heal',damage:m.power,heal:45,variable:!!m.power}));
   return enemies[member.species].moves.map(m=>({...m,kind:m.kind||(m.damage?'damage':'status'),pp:15,type:'ノーマル',css:'',description:moveDescription(m)}));
 }
 function moveDescription(m){
@@ -76,12 +84,18 @@ let party=[newMember('matasaburo','self')],activeUid='self',saveWarning='';
 try{
   const saved=JSON.parse(localStorage.getItem(PARTY_KEY)||'null');
   if(saved&&Array.isArray(saved.caught)){
+    if(STARTERS.includes(saved.starter))party[0]=newMember(saved.starter,'self');
     const seen=new Set(['self']);
     for(const m of saved.caught.slice(0,5))if(m&&enemies[m.species]&&typeof m.uid==='string'&&!seen.has(m.uid)){party.push(newMember(m.species,m.uid));seen.add(m.uid);}
     if(party.some(m=>m.uid===saved.activeUid))activeUid=saved.activeUid;
   }
 }catch{saveWarning='記録を読み込めませんでした。今回の仲間はこの画面を閉じるまで保持します。';}
-function saveParty(){try{localStorage.setItem(PARTY_KEY,JSON.stringify({caught:party.filter(m=>m.uid!=='self').map(({species,uid})=>({species,uid})),activeUid}));}catch{saveWarning='保存できません。この画面を閉じると仲間の記録が失われます。';}}
+function saveParty(){try{localStorage.setItem(PARTY_KEY,JSON.stringify({starter:party[0].species,caught:party.filter(m=>m.uid!=='self').map(({species,uid})=>({species,uid})),activeUid}));}catch{saveWarning='保存できません。この画面を閉じると仲間の記録が失われます。';}}
+function chooseStarter(species){
+  if(!STARTERS.includes(species)||window.GUNMA_GAME_STARTED)return false;
+  if(party[0].species!==species){party[0]=newMember(species,'self');activeUid='self';}
+  healParty();saveParty();reset();return true;
+}
 function activeMember(){return party.find(m=>m.uid===activeUid)||party[0];}
 function activeName(){return enemies[activeMember().species].name;}
 function healParty(){party.forEach(m=>{m.hp=180;m.pp=movesFor(m).map(x=>x.pp)});}
@@ -127,7 +141,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function animate(id,cls){$(id).classList.remove(cls);void $(id).offsetWidth;$(id).classList.add(cls);setTimeout(()=>$(id).classList.remove(cls),600);}
 function finish(won,captured=false){
   state.over=true;state.busy=false;$(won?'enemy':'player').classList.add('faint');
-  say(captured?state.foe.name+'を つかまえた！\n捕まえた仲間 '+(party.length-1)+' / 5体\nマップへ戻ります。':won?(state.enemyId==='subaru'?'すばるを たおした！\n「次のChill Smokeオーナーは君だ」\n\nクリックでマップへ戻る':state.foe.name+'を たおした！ マップへ戻ります。'):activeName()+'は たおれた…。ひと休みして マップへ戻ります。',captured?'GOTCHA!':won?'YOU WIN!':'BATTLE OVER');
+  say(captured?state.foe.name+'を つかまえた！\n捕まえた仲間 '+(party.length-1)+' / 5体\nマップへ戻ります。':won?(state.enemyId==='tsukimi_subaru'?'つきみ すばるを たおした！\n「あとで覚えてろよ」\n\nクリックでマップへ戻る':state.enemyId==='subaru'?'すばるを たおした！\n「次のChill Smokeオーナーは君だ」\n\nクリックでマップへ戻る':state.foe.name+'を たおした！ マップへ戻ります。'):activeName()+'は たおれた…。ひと休みして マップへ戻ります。',captured?'GOTCHA!':won?'YOU WIN!':'BATTLE OVER');
   if(won)window.GunmaAudio?.playVictory?.();tone(won?880:160);render();
   document.dispatchEvent(new CustomEvent('battle-finished',{detail:{won,enemyId:state.enemyId,captured}}));
 }

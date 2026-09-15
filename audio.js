@@ -82,7 +82,7 @@
 
   function playOpening() { play('opening'); }
   function playMap() { play('map'); }
-  function playBattle(enemyId) { play(enemyId === 'subaru' ? 'boss' : 'battle', { restart: true }); }
+  function playBattle(enemyId) { play(['subaru','tsukimi_subaru'].includes(enemyId) ? 'boss' : 'battle', { restart: true }); }
   function playVictory() { play('victory', { restart: true }); }
 
   function playSfx(name) {
