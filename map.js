@@ -1,4 +1,6 @@
 (() => {
+  const RESORT_ASSET_VERSION=window.RESORT_ASSET_VERSION||'20260915-bgmfix1';
+  const resortAsset=path=>/^(?:data:|blob:)/i.test(path)?path:path+(path.includes('?')?'&':'?')+'v='+encodeURIComponent(RESORT_ASSET_VERSION);
   const battle = document.querySelector('.console');
   const shell = document.createElement('section');
   shell.className = 'overworld console';
@@ -60,8 +62,8 @@
   }
   function move(dir){if(mode!=='map'||moving)return;facing=dir;const [dx,dy]=dirs[dir];if(blocked(x+dx,y+dy))return;fromX=x;fromY=y;x+=dx;y+=dy;began=performance.now();moving=true;}
   function onStep(){if(mode!=='map')return;steps++;$('walk-count').textContent=steps+' STEPS';canvas.setAttribute('aria-label',`マップ。現在 ${x+1}列 ${y+1}行。${tile(x,y)==='g'?'草むら':'小道・草地'}。矢印キーで移動。`);if(tile(x,y)==='g'){grassSteps++;if(grassSteps>=encounterAt)encounter();} }
-  async function encounter(){mode='transition';held=null;const ticket=++token;$('encounter-flash').hidden=false;const encounterPool=['matasaburo','mikeke','mine_daina','kanade','sui'];const enemyId=encounterPool[Math.floor(Math.random()*encounterPool.length)];message('あっ！ 草むらから '+enemies[enemyId].name+'が！');tone(760);await delay(reduced?200:700);if(ticket!==token)return;mode='battle';$('encounter-flash').hidden=true;shell.hidden=true;battle.hidden=false;back.hidden=false;back.textContent='にげて マップへ戻る';reset(enemyId);$('moves').querySelector('button').focus({preventScroll:true});}
-  function returnToMap(){if(mode==='loading'||mode==='error')return;token++;epoch++;held=null;moving=false;mode='map';px=x;py=y;grassSteps=0;encounterAt=5+Math.floor(Math.random()*4);battle.hidden=true;back.hidden=true;shell.hidden=false;$('encounter-flash').hidden=true;message('ひと休みして HPとPPが まんたんに！ 冒険をつづけよう。');reset();canvas.focus({preventScroll:true});}
+  async function encounter(){mode='transition';held=null;const ticket=++token;$('encounter-flash').hidden=false;const encounterPool=['matasaburo','mikeke','mine_daina','kanade','sui'];const enemyId=encounterPool[Math.floor(Math.random()*encounterPool.length)];message('あっ！ 草むらから '+enemies[enemyId].name+'が！');tone(760);await delay(reduced?200:700);if(ticket!==token)return;mode='battle';$('encounter-flash').hidden=true;shell.hidden=true;battle.hidden=false;back.hidden=false;back.textContent='にげて マップへ戻る';window.GunmaAudio?.playBattle?.(enemyId);reset(enemyId);$('moves').querySelector('button').focus({preventScroll:true});}
+  function returnToMap(){if(mode==='loading'||mode==='error')return;token++;epoch++;held=null;moving=false;mode='map';px=x;py=y;grassSteps=0;encounterAt=5+Math.floor(Math.random()*4);battle.hidden=true;back.hidden=true;shell.hidden=false;$('encounter-flash').hidden=true;window.GunmaAudio?.playMap?.();message('ひと休みして HPとPPが まんたんに！ 冒険をつづけよう。');reset();canvas.focus({preventScroll:true});}
   function inspect(){if(mode!=='map'||moving)return;const [dx,dy]=dirs[facing];if(tile(x+dx,y+dy)==='S'){message('【グンマーの小道】マタサブロウ、ミケケ、みね だいな、かなで、すいが いるみたい。');tone(620);}else if(tile(x+dx,y+dy)==='W')message('きれいな池だ。水が きらきらしている。');else if(tile(x+dx,y+dy)==='T')message('大きな木が 道をふさいでいる。');else message('草むらを何歩か歩くと 5人のだれかに出会えるよ。');}
   const keys={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',w:'up',s:'down',a:'left',d:'right'};
   window.addEventListener('keydown',e=>{if(mode!=='map'||e.ctrlKey||e.metaKey||e.altKey)return;const dir=keys[e.key]||keys[e.key.toLowerCase()];if(dir){e.preventDefault();held=dir;if(!e.repeat){last=performance.now();move(dir);}}else if((e.code==='Space'||e.key==='Enter')&&e.target===canvas){e.preventDefault();inspect();}});
@@ -71,11 +73,11 @@
   $('inspect').onclick=inspect;back.onclick=returnToMap;
   $('retry').onclick=()=>{back.textContent='にげて マップへ戻る';reset();};
   $('reset').onclick=()=>{if(mode==='loading'||mode==='error')return;x=6;y=10;steps=0;facing='down';$('walk-count').textContent='0 STEPS';returnToMap();encounterAt=4;message('小道を歩いて 草むらへ。マタサブロウを探してみよう！');};
-  document.addEventListener('battle-finished',()=>{back.textContent='マップへ戻る';const ticket=token,battleEpoch=epoch;setTimeout(()=>{if(mode==='battle'&&token===ticket&&epoch===battleEpoch)returnToMap();},1800);});
+  document.addEventListener('battle-finished',e=>{back.textContent='マップへ戻る';const ticket=token,battleEpoch=epoch,wait=e.detail?.won?3500:1800;setTimeout(()=>{if(mode==='battle'&&token===ticket&&epoch===battleEpoch)returnToMap();},wait);});
   let loaded=0;
-  function ready(){loaded++;if(loaded===2&&mode!=='error'){prepareActor();mode='map';frame=requestAnimationFrame(paint);}}
+  function ready(){loaded++;if(loaded===2&&mode!=='error'){prepareActor();mode='map';window.GunmaAudio?.playMap?.();frame=requestAnimationFrame(paint);}}
   atlas.onload=actorAtlas.onload=ready;
   atlas.onerror=actorAtlas.onerror=()=>{mode='error';message('マップ画像を読み込めませんでした。assetsフォルダも一緒に配置して、再読み込みしてください。');};
-  atlas.src='assets/world-atlas.png';
-  actorAtlas.src=window.MATASABURO_SPRITES||'assets/matasaburo-adult.png';
+  atlas.src=resortAsset('assets/world-atlas.png');
+  actorAtlas.src=resortAsset(window.MATASABURO_SPRITES||'assets/matasaburo-adult.png');
 })();
