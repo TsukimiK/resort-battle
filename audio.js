@@ -1,11 +1,15 @@
 (() => {
-  const VERSION = window.RESORT_ASSET_VERSION || '20260915-bgm05';
+  const VERSION = window.RESORT_ASSET_VERSION || '20260915-subarudialog1';
   const asset = path => path + (path.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(VERSION);
   const TRACKS = {
+    opening: { src: asset('assets/audio/opening.mp3'), loop: true },
     map: { src: asset('assets/audio/map.mp3'), loop: true },
     battle: { src: asset('assets/audio/battle.mp3'), loop: true },
     boss: { src: asset('assets/audio/boss.mp3'), loop: true },
     victory: { src: asset('assets/audio/victory.mp3'), loop: false }
+  };
+  const SFX = {
+    mine_daina_greeting: asset('assets/audio/mine_daina_greeting.mp3')
   };
 
   const readBool = (key, fallback) => {
@@ -28,7 +32,7 @@
 
   let enabled = readBool('gunma-audio-enabled', true);
   let volume = Math.min(1, Math.max(0, readNumber('gunma-audio-volume-v2', 0.05)));
-  let desiredTrack = 'map';
+  let desiredTrack = 'opening';
   let currentTrack = null;
   let blockedByAutoplay = false;
   const bgm = new Audio();
@@ -76,9 +80,20 @@
     if (enabled) tryPlay();
   }
 
+  function playOpening() { play('opening'); }
   function playMap() { play('map'); }
-  function playBattle(enemyId) { play(enemyId === 'kanade' ? 'boss' : 'battle', { restart: true }); }
+  function playBattle(enemyId) { play(enemyId === 'subaru' ? 'boss' : 'battle', { restart: true }); }
   function playVictory() { play('victory', { restart: true }); }
+
+  function playSfx(name) {
+    const src = SFX[name];
+    if (!enabled || !src) return;
+    try {
+      const sfx = new Audio(src);
+      sfx.volume = volume;
+      sfx.play().catch(() => {});
+    } catch {}
+  }
 
   function setEnabled(next) {
     enabled = Boolean(next);
@@ -114,9 +129,11 @@
   });
 
   window.GunmaAudio = {
+    playOpening,
     playMap,
     playBattle,
     playVictory,
+    playSfx,
     toggle,
     setEnabled,
     setVolume,
