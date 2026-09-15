@@ -1,5 +1,5 @@
 const $=id=>document.getElementById(id);
-const RESORT_ASSET_VERSION=window.RESORT_ASSET_VERSION||'20260915-subarudialog1';
+const RESORT_ASSET_VERSION=window.RESORT_ASSET_VERSION||'20260915-party1';
 const resortAsset=path=>path+(path.includes('?')?'&':'?')+'v='+encodeURIComponent(RESORT_ASSET_VERSION);
 
 const definitions=[
@@ -57,147 +57,140 @@ const enemies={
   subaru:{name:'すばる',title:'あおい けむりのトレーナー',image:resortAsset('assets/subaru.png'),moves:subaruMoves}
 };
 
+const PARTY_KEY='gunma-party-v1';
+function movesFor(member){
+  if(member.uid==='self')return definitions.map(m=>({...m,kind:m.power?'damage':'self-heal',damage:m.power,heal:45,variable:!!m.power}));
+  return enemies[member.species].moves.map(m=>({...m,kind:m.kind||(m.damage?'damage':'status'),pp:15,type:'ノーマル',css:'',description:moveDescription(m)}));
+}
+function moveDescription(m){
+  const kind=m.kind||(m.damage?'damage':'status');
+  if(kind==='self-heal')return '自分のHPを'+(m.heal||45)+'回復';
+  if(kind==='target-heal')return '相手のHPを'+(m.heal||45)+'回復';
+  if(kind==='self-damage')return '自分に'+m.damage+'ダメージ';
+  if(kind==='ohko')return '命中'+Math.round((m.accuracy??.2)*100)+'%で一撃';
+  if(kind==='damage')return m.damage+'ダメージ';
+  return m.sfx?'あいさつと鳴き声（ダメージなし）':'ダメージなし';
+}
+function newMember(species,uid){const m={species,uid,hp:180};m.pp=movesFor(m).map(x=>x.pp);return m;}
+let party=[newMember('matasaburo','self')],activeUid='self',saveWarning='';
+try{
+  const saved=JSON.parse(localStorage.getItem(PARTY_KEY)||'null');
+  if(saved&&Array.isArray(saved.caught)){
+    const seen=new Set(['self']);
+    for(const m of saved.caught.slice(0,5))if(m&&enemies[m.species]&&typeof m.uid==='string'&&!seen.has(m.uid)){party.push(newMember(m.species,m.uid));seen.add(m.uid);}
+    if(party.some(m=>m.uid===saved.activeUid))activeUid=saved.activeUid;
+  }
+}catch{saveWarning='記録を読み込めませんでした。今回の仲間はこの画面を閉じるまで保持します。';}
+function saveParty(){try{localStorage.setItem(PARTY_KEY,JSON.stringify({caught:party.filter(m=>m.uid!=='self').map(({species,uid})=>({species,uid})),activeUid}));}catch{saveWarning='保存できません。この画面を閉じると仲間の記録が失われます。';}}
+function activeMember(){return party.find(m=>m.uid===activeUid)||party[0];}
+function activeName(){return enemies[activeMember().species].name;}
+function healParty(){party.forEach(m=>{m.hp=180;m.pp=movesFor(m).map(x=>x.pp)});}
+function captureChance(hp){return .2+.65*(1-Math.max(0,Math.min(180,hp))/180);}
+function releaseMember(uid){
+  if(uid==='self'||!party.some(m=>m.uid===uid))return false;
+  if(window.GunmaMap?.mode()!=='menu')return false;
+  party=party.filter(m=>m.uid!==uid);if(activeUid===uid)activeUid='self';saveParty();reset();return true;
+}
 let state,epoch=0,audio;
 function tone(freq=440){
   if(!window.GunmaAudio?.isEnabled?.())return;
-  try{
-    audio??=new(window.AudioContext||window.webkitAudioContext)();
-    audio.resume();
-    const volume=window.GunmaAudio?.getVolume?.()??.35;
-    let o=audio.createOscillator(),g=audio.createGain();
-    o.type='square';o.frequency.value=freq;
-    const gain=.035*Math.min(1.5,volume/.35);
-    g.gain.setValueAtTime(Math.max(.001,gain),audio.currentTime);
-    g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.15);
-    o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+.16);
-  }catch{}
+  try{audio??=new(window.AudioContext||window.webkitAudioContext)();audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type='square';o.frequency.value=freq;g.gain.setValueAtTime(.035*(window.GunmaAudio.getVolume()/.35),audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.15);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+.16);}catch{}
 }
 function render(){
-  for(const side of ['player','enemy']){
-    let amount=state[side]/180*100;
-    $(side+'-bar').style.width=amount+'%';
-    $(side+'-bar').style.background=amount>50?'#59cc79':amount>20?'#efc74f':'#e16a59';
-  }
-  $('hp').textContent=state.player+' / 180';
-  $('turn').textContent='TURN '+String(state.turn).padStart(2,'0');
+  activeMember().hp=state.player;activeMember().pp=state.pp;
+  for(const side of ['player','enemy']){const amount=state[side]/180*100;$(side+'-bar').style.width=amount+'%';$(side+'-bar').style.background=amount>50?'#59cc79':amount>20?'#efc74f':'#e16a59';}
+  const member=activeMember(),species=enemies[member.species];
+  $('player').src=species.image;$('player').alt='味方の'+species.name;
+  document.querySelector('.player-status .name').innerHTML=species.name+' <span class="male">'+(species.gender||'♂')+'</span><span class="level">Lv.50</span>';
+  $('hp').textContent=state.player+' / 180';$('turn').textContent='TURN '+String(state.turn).padStart(2,'0');
   $('moves').replaceChildren();
-  definitions.forEach((m,i)=>{
-    let b=document.createElement('button');
-    b.className='move';
-    b.disabled=state.busy||state.over||state.pp[i]===0;
-    b.setAttribute('aria-label',m.name+'、'+m.description+'、残りPP '+state.pp[i]);
-    b.innerHTML='<span class="move-name">'+m.name+'</span><span class="move-meta"><span class="type '+m.css+'">'+m.type+'</span><span>PP '+state.pp[i]+' / '+m.pp+'</span></span>';
-    b.onclick=()=>turn(i);
-    $('moves').append(b);
-  });
-  $('moves').hidden=state.over;
-  $('retry').hidden=true;
+  movesFor(member).forEach((m,i)=>{const b=document.createElement('button');b.className='move';b.disabled=state.busy||state.over||state.player===0||state.pp[i]===0;b.setAttribute('aria-label',m.name+'、'+m.description+'、残りPP '+state.pp[i]);b.innerHTML='<span class="move-name">'+m.name+'</span><span class="move-meta"><span class="type '+(m.css||'')+'">'+m.type+'</span><span>PP '+state.pp[i]+' / '+m.pp+'</span></span>';b.onclick=()=>turn(i);$('moves').append(b);});
+  $('moves').hidden=state.over;$('retry').hidden=true;
+  if($('catch-ball')){
+    $('catch-ball').disabled=state.busy||state.over||state.player===0||party.length>=6;
+    $('catch-ball').textContent=party.length>=6?'捕獲枠がいっぱい（5 / 5）':'グンマーボールを投げる（'+Math.round(captureChance(state.enemy)*100)+'%）';
+    $('battle-party').disabled=state.busy||state.over;
+    $('battle-actions').hidden=state.over;
+  }
 }
-function say(text,label){$('message').textContent=text;if(label)$('phase').textContent=label}
+function say(text,label){$('message').textContent=text;if(label)$('phase').textContent=label;}
 function reset(enemyId='matasaburo'){
-  epoch++;
-  const foe=enemies[enemyId]||enemies.matasaburo;
-  state={foe,player:180,enemy:180,pp:definitions.map(m=>m.pp),turn:1,busy:false,over:false};
-  $('enemy').classList.remove('faint');
-  $('player').classList.remove('faint');
-  $('effect').className='';
-  $('enemy').src=foe.image;
-  $('enemy').alt=foe.title+' '+foe.name;
+  epoch++;const foe=enemies[enemyId]||enemies.matasaburo,member=activeMember();
+  state={foe,enemyId,player:member.hp,enemy:180,pp:member.pp,turn:1,busy:false,over:false};
+  $('enemy').classList.remove('faint');$('player').classList.remove('faint');$('effect').className='';
+  $('enemy').src=foe.image;$('enemy').alt=foe.title+' '+foe.name;
   document.querySelector('.enemy-status .name').innerHTML=foe.name+' <span class="male">'+(foe.gender||'♂')+'</span><span class="level">Lv.50</span>';
   document.querySelector('.status-foot').textContent=foe.title;
-  say(foe.title+' '+foe.name+'が あらわれた！ マタサブロウは どうする？','YOUR TURN');
-  render();
+  say(foe.title+' '+foe.name+'が あらわれた！ '+activeName()+'は どうする？','YOUR TURN');render();
 }
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-function animate(id,cls){$(id).classList.remove(cls);void $(id).offsetWidth;$(id).classList.add(cls);setTimeout(()=>$(id).classList.remove(cls),600)}
-function finish(won){
+function animate(id,cls){$(id).classList.remove(cls);void $(id).offsetWidth;$(id).classList.add(cls);setTimeout(()=>$(id).classList.remove(cls),600);}
+function finish(won,captured=false){
   state.over=true;state.busy=false;$(won?'enemy':'player').classList.add('faint');
-  const enemyId=Object.keys(enemies).find(key=>enemies[key]===state.foe)||null;
-  const winText = won
-    ? (enemyId==='subaru'
-        ? 'すばるを たおした！\n「次のChill Smokeオーナーは君だ」\n\nクリックでマップへ戻る'
-        : state.foe.name+'を たおした！ マップへ戻ります。')
-    : 'マタサブロウは たおれた…。ひと休みして マップへ戻ります。';
-  say(winText,won?'YOU WIN!':'BATTLE OVER');
-  if(won)window.GunmaAudio?.playVictory?.();
-  tone(won?880:160);render();
-  document.dispatchEvent(new CustomEvent('battle-finished',{detail:{won,enemyId}}));
+  say(captured?state.foe.name+'を つかまえた！\n捕まえた仲間 '+(party.length-1)+' / 5体\nマップへ戻ります。':won?(state.enemyId==='subaru'?'すばるを たおした！\n「次のChill Smokeオーナーは君だ」\n\nクリックでマップへ戻る':state.foe.name+'を たおした！ マップへ戻ります。'):activeName()+'は たおれた…。ひと休みして マップへ戻ります。',captured?'GOTCHA!':won?'YOU WIN!':'BATTLE OVER');
+  if(won)window.GunmaAudio?.playVictory?.();tone(won?880:160);render();
+  document.dispatchEvent(new CustomEvent('battle-finished',{detail:{won,enemyId:state.enemyId,captured}}));
 }
-function healSide(side,amount){const before=state[side];state[side]=Math.min(180,state[side]+amount);return state[side]-before}
-function applyEnemyMove(opponent){
-  const kind=opponent.kind||(opponent.damage?'damage':'status');
-  if(opponent.sfx)window.GunmaAudio?.playSfx?.(opponent.sfx);
-  if(opponent.effect)animate('effect',opponent.effect);
-  if(kind==='damage'){
-    const damage=opponent.damage||0;
-    state.player=Math.max(0,state.player-damage);
-    if(damage)animate('player','hit');
-    say(opponent.text||'マタサブロウは '+damage+' ダメージを うけた！');
-    return;
-  }
-  if(kind==='self-heal'){
-    const healed=healSide('enemy',opponent.heal||45);
-    animate('enemy','heal');
-    say(opponent.text+(healed?' HPが '+healed+' かいふくした！':' しかし HPは まんたんだ！'));
-    return;
-  }
-  if(kind==='target-heal'){
-    const healed=healSide('player',opponent.heal||45);
-    animate('player','heal');
-    say(opponent.text+(healed?' マタサブロウの HPが '+healed+' かいふくした！':' しかし HPは まんたんだ！'));
-    return;
-  }
-  if(kind==='self-damage'){
-    const damage=Math.min(state.enemy,opponent.damage||0);
-    state.enemy=Math.max(0,state.enemy-damage);
-    if(damage)animate('enemy','hit');
-    say(opponent.text+(damage?' '+state.foe.name+'は '+damage+' ダメージを うけた！':''));
-    return;
-  }
-  if(kind==='ohko'){
-    const hit=Math.random()<(opponent.accuracy??0.2);
-    if(hit){
-      state.player=0;
-      animate('player','hit');
-      say(opponent.hitText||state.foe.name+'の '+opponent.name+'！ いちげき ひっさつ！');
-    }else{
-      say(opponent.missText||state.foe.name+'の '+opponent.name+'！ しかし あたらなかった！');
-    }
-    return;
-  }
-  say(opponent.text||state.foe.name+'は ようすを みている…');
+function healSide(side,amount){const before=state[side];state[side]=Math.min(180,state[side]+amount);return state[side]-before;}
+function applyMove(m,side){
+  const other=side==='player'?'enemy':'player',name=side==='player'?activeName():state.foe.name,target=other==='player'?activeName():state.foe.name;
+  const kind=m.kind||(m.damage?'damage':'status');
+  if(m.sfx)window.GunmaAudio?.playSfx?.(m.sfx);if(m.effect)animate('effect',m.effect);
+  if(kind==='damage'){const damage=(m.damage||0)+(m.variable?Math.floor(Math.random()*8):0);state[other]=Math.max(0,state[other]-damage);if(damage)animate(other,'hit');if(m.css)animate('effect',m.css==='water'?'water-effect':'fight-effect');say(target+'に '+damage+' ダメージ！');}
+  else if(kind==='self-heal'||kind==='target-heal'){const who=kind==='self-heal'?side:other,n=healSide(who,m.heal||45);animate(who,'heal');say((who===side?name:target)+'の HPが '+n+' かいふくした！');}
+  else if(kind==='self-damage'){state[side]=Math.max(0,state[side]-(m.damage||0));animate(side,'hit');say(name+'は '+m.name+'！ 自分に '+m.damage+' ダメージ！');}
+  else if(kind==='ohko'){if(Math.random()<(m.accuracy??.2)){state[other]=0;animate(other,'hit');say('いちげき ひっさつ！ '+target+'は たおれた！');}else say('しかし うまく あたらなかった！');}
+  else say(m.text||name+'は ようすを みている…。');
+}
+function checkEnd(){
+  if(state.enemy===0){finish(true);return true;}
+  if(state.player===0){
+    if(party.some(m=>m.uid!==activeUid&&m.hp>0)){state.busy=false;$('player').classList.add('faint');say(activeName()+'は たおれた！「グンモン」で次の仲間を選ぼう。','CHANGE');render();}
+    else finish(false);
+    return true;
+  }return false;
+}
+async function enemyTurn(ticket){
+  if(ticket!==epoch||state.over)return;
+  if(checkEnd())return;
+  const m=state.foe.moves[(state.turn-1)%state.foe.moves.length];
+  say(state.foe.name+'の '+m.name+'！','ENEMY TURN');animate('enemy','attack');tone(260);
+  await delay(650);if(ticket!==epoch)return;applyMove(m,'enemy');render();
+  await delay(850);if(ticket!==epoch)return;state.turn++;
+  if(checkEnd())return;
+  state.busy=false;
+  if(state.pp.every(p=>p===0))state.pp=movesFor(activeMember()).map(m=>m.pp);
+  say(activeName()+'は どうする？','YOUR TURN');render();
 }
 async function turn(i){
-  if(state.busy||state.over||!state.pp[i])return;
-  const ticket=epoch,m=definitions[i];
-  state.busy=true;state.pp[i]--;render();say('マタサブロウの '+m.name+'！','YOUR MOVE');tone(m.power?520:740);animate('player',m.power?'attack':'heal');
-  await delay(650); if(ticket!==epoch)return;
-  if(m.power){
-    const damage=m.power+Math.floor(Math.random()*8);
-    state.enemy=Math.max(0,state.enemy-damage);
-    animate('enemy','hit');
-    if(m.css)animate('effect',m.css==='water'?'water-effect':'fight-effect');
-    say(state.foe.name+'に '+damage+' ダメージ！');
-  }else{
-    let n=Math.min(45,180-state.player); state.player+=n;
-    say(n?'リラックスして HPが '+n+' かいふくした！':'HPは まんたんだ！');
-  }
-  render();
-  await delay(950); if(ticket!==epoch)return;
-  if(!state.enemy){finish(true);return}
-  const opponent=state.foe.moves[(state.turn-1)%state.foe.moves.length];
-  say(state.foe.name+'の '+opponent.name+'！','ENEMY TURN');
-  animate('enemy','attack'); tone(opponent.kind==='status'?430:260);
-  await delay(650); if(ticket!==epoch)return;
-  applyEnemyMove(opponent); render();
-  await delay(850); if(ticket!==epoch)return;
-  if(!state.enemy){finish(true);return}
-  if(!state.player){finish(false);return}
-  state.turn++; state.busy=false;
-  if(state.pp.every(p=>p===0)){
-    state.pp=definitions.map(m=>m.pp);
-    say('ひと息ついて PPが かいふくした！ つぎの技は？','YOUR TURN');
-  }else say('マタサブロウは どうする？','YOUR TURN');
-  render();
+  if(state.busy||state.over||!state.player||!state.pp[i])return;
+  const ticket=epoch,m=movesFor(activeMember())[i];
+  state.busy=true;state.pp[i]--;render();say(activeName()+'の '+m.name+'！','YOUR MOVE');tone(520);animate('player','attack');
+  await delay(650);if(ticket!==epoch)return;applyMove(m,'player');render();
+  await delay(950);if(ticket!==epoch)return;await enemyTurn(ticket);
 }
-$('retry').onclick=reset;$('reset').onclick=reset;reset();
+async function throwBall(){
+  if(window.GunmaMap?.mode()!=='battle'||state.busy||state.over||!state.player)return;
+  if(party.length>=6){say('捕まえられるのは5体までです。マップのグンモンから逃がすと、枠が空きます。');return;}
+  const ticket=epoch,chance=captureChance(state.enemy);state.busy=true;render();say('グンマーボールを 投げた！','CATCH');
+  $('gunma-ball').hidden=false;
+  await delay(1000);$('gunma-ball').hidden=true;if(ticket!==epoch)return;
+  if(Math.random()<chance){
+    party.push(newMember(state.enemyId,'caught-'+Date.now()+'-'+Math.random().toString(36).slice(2)));saveParty();finish(true,true);
+  }else{say('あっ！ ボールから 出てしまった！');await delay(800);if(ticket!==epoch)return;await enemyTurn(ticket);}
+}
+async function switchMember(uid){
+  const next=party.find(m=>m.uid===uid),mode=window.GunmaMap?.mode();
+  if(!next||uid===activeUid||!['menu','battle'].includes(mode))return false;
+  if(mode==='battle'&&(state.busy||state.over||next.hp===0))return false;
+  const wasFainted=state.player===0;
+  activeMember().hp=state.player;activeMember().pp=state.pp;
+  activeUid=uid;saveParty();state.player=next.hp;state.pp=next.pp;$('player').classList.remove('faint');
+  if(state.pp.every(p=>p===0))state.pp=movesFor(next).map(m=>m.pp);
+  if(mode==='battle'){
+    state.busy=true;render();say('いけっ！ '+activeName()+'！','CHANGE');const ticket=epoch;
+    await delay(650);if(ticket!==epoch)return true;
+    if(wasFainted){state.busy=false;render();say(activeName()+'は どうする？','YOUR TURN');}else await enemyTurn(ticket);
+  }else render();return true;
+}
+$('retry').onclick=()=>reset();$('reset').onclick=()=>reset();reset();
